@@ -347,4 +347,98 @@ class OptimizeInSuite extends PlanTest {
       comparePlans(optimized, correctAnswer)
     }
   }
+
+  test("OptimizedIn test: NOT IN (single value) gets transformed to Not(EqualTo).") {
+    val originalQuery =
+      testRelation
+        .where(Not(In(UnresolvedAttribute("a"), Seq(Literal(1)))))
+        .analyze
+
+    val optimized = Optimize.execute(originalQuery)
+    val correctAnswer =
+      testRelation
+        .where(Not(EqualTo(UnresolvedAttribute("a"), Literal(1))))
+        .analyze
+
+    comparePlans(optimized, correctAnswer)
+  }
+
+  test("OptimizedIn test: NOT IN (duplicate values) gets transformed to Not(EqualTo).") {
+    val originalQuery =
+      testRelation
+        .where(Not(In(UnresolvedAttribute("a"), Seq(Literal(1), Literal(1)))))
+        .analyze
+
+    val optimized = Optimize.execute(originalQuery)
+    val correctAnswer =
+      testRelation
+        .where(Not(EqualTo(UnresolvedAttribute("a"), Literal(1))))
+        .analyze
+
+    comparePlans(optimized, correctAnswer)
+  }
+
+  test("OptimizedIn test: NOT IN (multiple values) stays as Not(In).") {
+    val originalQuery =
+      testRelation
+        .where(Not(In(UnresolvedAttribute("a"), Seq(Literal(1), Literal(2)))))
+        .analyze
+
+    val optimized = Optimize.execute(originalQuery)
+    comparePlans(optimized, originalQuery)
+  }
+
+  test("OptimizedIn test: NOT IN (empty list) gets transformed to literal true") {
+    withSQLConf(LEGACY_NULL_IN_EMPTY_LIST_BEHAVIOR.key -> "false") {
+      val originalQuery =
+        testRelation
+          .where(Not(In(UnresolvedAttribute("a"), Nil)))
+          .analyze
+
+      val optimized = Optimize.execute(originalQuery.analyze)
+      val correctAnswer =
+        testRelation
+          .where(Literal.create(true, BooleanType))
+          .analyze
+
+      comparePlans(optimized, correctAnswer)
+    }
+  }
+
+  test("OptimizedIn test: Legacy behavior: " +
+    "NOT IN empty list gets transformed to TrueLiteral when value is not nullable") {
+    withSQLConf(LEGACY_NULL_IN_EMPTY_LIST_BEHAVIOR.key -> "true") {
+      val originalQuery =
+        testRelation
+          .where(Not(In(Literal("a"), Nil)))
+          .analyze
+
+      val optimized = Optimize.execute(originalQuery)
+      val correctAnswer =
+        testRelation
+          .where(Literal(true))
+          .analyze
+
+      comparePlans(optimized, correctAnswer)
+    }
+  }
+
+  test("OptimizedIn test: Legacy behavior: " +
+    "NOT IN empty list gets transformed to `If` expression when value is nullable") {
+    withSQLConf(LEGACY_NULL_IN_EMPTY_LIST_BEHAVIOR.key -> "true") {
+      val originalQuery =
+        testRelation
+          .where(Not(In(UnresolvedAttribute("a"), Nil)))
+          .analyze
+
+      val optimized = Optimize.execute(originalQuery)
+      val correctAnswer =
+        testRelation
+          .where(If(IsNotNull(UnresolvedAttribute("a")),
+            Literal(true), Literal.create(null, BooleanType)))
+          .analyze
+
+      comparePlans(optimized, correctAnswer)
+    }
+  }
 }

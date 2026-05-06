@@ -361,6 +361,25 @@ object OptimizeIn extends Rule[LogicalPlan] {
         } else {
           If(IsNotNull(v), FalseLiteral, Literal(null, BooleanType))
         }
+      case Not(In(v, list)) if list.isEmpty =>
+        // NOT IN (empty list) is always true under current behavior.
+        // Under legacy behavior it's null if the left side is null, otherwise true.
+        if (!SQLConf.get.legacyNullInEmptyBehavior) {
+          TrueLiteral
+        } else {
+          If(IsNotNull(v), TrueLiteral, Literal(null, BooleanType))
+        }
+      case Not(expr @ In(v, list)) if expr.inSetConvertible =>
+        val newList = ExpressionSet(list).toSeq
+        if (newList.length == 1
+          && !v.isInstanceOf[CreateNamedStruct]
+          && !newList.head.isInstanceOf[CreateNamedStruct]) {
+          Not(EqualTo(v, newList.head))
+        } else if (newList.length < list.length) {
+          Not(expr.copy(list = newList))
+        } else {
+          Not(expr)
+        }
       case expr @ In(v, list) if expr.inSetConvertible =>
         val newList = ExpressionSet(list).toSeq
         if (newList.length == 1
